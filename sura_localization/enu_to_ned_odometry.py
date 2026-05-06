@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import math
 
 from geometry_msgs.msg import Quaternion, Vector3
@@ -57,9 +58,11 @@ class EnuToNedOdometry(Node):
         converted.pose.pose.orientation = self._rotate_orientation(msg.pose.pose.orientation)
         converted.pose.covariance = self._transform_covariance(msg.pose.covariance)
 
-        converted.twist.twist.linear = self._transform_vector(msg.twist.twist.linear)
-        converted.twist.twist.angular = self._transform_vector(msg.twist.twist.angular)
-        converted.twist.covariance = self._transform_covariance(msg.twist.covariance)
+        converted.twist = deepcopy(msg.twist)
+        converted.twist.twist.angular.x = msg.twist.twist.angular.y
+        converted.twist.twist.angular.y = msg.twist.twist.angular.x
+        converted.twist.twist.angular.z = -msg.twist.twist.angular.z
+        converted.twist.covariance = self._transform_twist_angular_covariance(msg.twist.covariance)
 
         self._publisher.publish(converted)
 
@@ -129,6 +132,26 @@ class EnuToNedOdometry(Node):
             (0.0, 1.0, 0.0, 0.0, 0.0, 0.0),
             (1.0, 0.0, 0.0, 0.0, 0.0, 0.0),
             (0.0, 0.0, -1.0, 0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0, 0.0, 0.0, -1.0),
+        )
+        return [
+            sum(
+                transform[row][i] * covariance[i * 6 + j] * transform[col][j]
+                for i in range(6)
+                for j in range(6)
+            )
+            for row in range(6)
+            for col in range(6)
+        ]
+
+    @staticmethod
+    def _transform_twist_angular_covariance(covariance: list[float]) -> list[float]:
+        transform = (
+            (1.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0, 0.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
             (0.0, 0.0, 0.0, 0.0, 1.0, 0.0),
             (0.0, 0.0, 0.0, 1.0, 0.0, 0.0),
             (0.0, 0.0, 0.0, 0.0, 0.0, -1.0),

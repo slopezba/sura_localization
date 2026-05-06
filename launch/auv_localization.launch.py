@@ -2,7 +2,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -10,6 +11,11 @@ from launch_ros.actions import Node
 def launch_setup(context, *args, **kwargs):
     package_share = get_package_share_directory("sura_localization")
     config_file = os.path.join(package_share, "config", "ekf_auv.yaml")
+    aruco_map_launch = os.path.join(
+        get_package_share_directory("cirtesu_tank_aruco_localization"),
+        "launch",
+        "aruco_map_localization.launch.py",
+    )
 
     output_odom_topic = LaunchConfiguration("output_odom_topic")
     map_frame = LaunchConfiguration("map_frame")
@@ -55,6 +61,30 @@ def launch_setup(context, *args, **kwargs):
             ],
         ),
         Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="world_ned_to_cirtesu_tank",
+            output="screen",
+            arguments=[
+                "--x",
+                "0.0",
+                "--y",
+                "0.0",
+                "--z",
+                "0.0",
+                "--roll",
+                "0.0",
+                "--pitch",
+                "0.0",
+                "--yaw",
+                "3.1416",
+                "--frame-id",
+                "world_ned",
+                "--child-frame-id",
+                "cirtesu_tank",
+            ],
+        ),
+        Node(
             package="sura_localization",
             executable="ned_to_enu_imu",
             name="imu_ned_to_enu",
@@ -83,6 +113,7 @@ def launch_setup(context, *args, **kwargs):
                 }
             ],
         ),
+        IncludeLaunchDescription(PythonLaunchDescriptionSource(aruco_map_launch)),
         Node(
             package="robot_localization",
             executable="navsat_transform_node",
