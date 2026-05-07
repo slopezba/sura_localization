@@ -1,28 +1,56 @@
 import os
+from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
+def namespaced_config(config_file, robot_namespace):
+    text = Path(config_file).read_text(encoding="utf-8")
+    text = text.replace("/cirtesub/", f"/{robot_namespace}/")
+    text = text.replace("cirtesub/", f"{robot_namespace}/")
+
+    output_file = f"/tmp/sura_localization_{robot_namespace}_{Path(config_file).name}"
+    Path(output_file).write_text(text, encoding="utf-8")
+    return output_file
+
+
 def launch_setup(context, *args, **kwargs):
+    robot_namespace = LaunchConfiguration("robot_namespace").perform(context).strip("/")
     package_share = get_package_share_directory("sura_localization")
-    config_file = os.path.join(package_share, "config", "ekf_auv.yaml")
-    aruco_map_launch = os.path.join(
-        get_package_share_directory("cirtesu_tank_aruco_localization"),
-        "launch",
-        "aruco_map_localization.launch.py",
+    aruco_share = get_package_share_directory("cirtesu_tank_aruco_localization")
+
+    config_file = namespaced_config(
+        os.path.join(package_share, "config", "ekf_auv.yaml"),
+        robot_namespace,
+    )
+    aruco_config_file = namespaced_config(
+        os.path.join(aruco_share, "config", "aruco_map.yaml"),
+        robot_namespace,
     )
 
-    output_odom_topic = LaunchConfiguration("output_odom_topic")
+    def topic(path):
+        return f"/{robot_namespace}/{path}"
+
     map_frame = LaunchConfiguration("map_frame")
     odom_frame = LaunchConfiguration("odom_frame")
-    base_link_frame = LaunchConfiguration("base_link_frame")
     world_frame = LaunchConfiguration("world_frame")
     publish_tf = LaunchConfiguration("publish_tf")
+    base_link_frame = LaunchConfiguration("base_link_frame").perform(context)
+    if not base_link_frame:
+        base_link_frame = f"{robot_namespace}/base_link"
+
+    output_odom_topic = LaunchConfiguration("output_odom_topic").perform(context)
+    if not output_odom_topic:
+        output_odom_topic = topic("localization/odometry_enu")
+
+    output_ned_odom_topic = LaunchConfiguration("output_ned_odom_topic").perform(context)
+    if not output_ned_odom_topic:
+        output_ned_odom_topic = topic("localization/odometry")
+
     datum_latitude = float(LaunchConfiguration("datum_latitude").perform(context))
     datum_longitude = float(LaunchConfiguration("datum_longitude").perform(context))
     datum_heading = float(LaunchConfiguration("datum_heading").perform(context))
@@ -33,6 +61,11 @@ def launch_setup(context, *args, **kwargs):
         "base_link_frame": base_link_frame,
         "world_frame": world_frame,
         "publish_tf": publish_tf,
+        "pose0": topic("sensors/pressure/pose"),
+        "pose1": topic("sensors/aruco/pose_enu"),
+        "odom0": topic("sensors/gps/odometry"),
+        "twist0": topic("sensors/dvl/twist"),
+        "imu0": topic("sensors/imu_enu"),
     }
 
     return [
@@ -91,9 +124,9 @@ def launch_setup(context, *args, **kwargs):
             output="screen",
             parameters=[
                 {
-                    "input_topic": "/cirtesub/sensors/imu",
-                    "output_topic": "/cirtesub/sensors/imu_enu",
-                    "frame_id": "cirtesub/IMU",
+                    "input_topic": topic("sensors/imu"),
+                    "output_topic": topic("sensors/imu_enu"),
+                    "frame_id": f"{robot_namespace}/IMU",
                 }
             ],
         ),
@@ -104,16 +137,22 @@ def launch_setup(context, *args, **kwargs):
             output="screen",
             parameters=[
                 {
-                    "input_topic": "/cirtesub/sensors/pressure",
-                    "output_topic": "/cirtesub/sensors/pressure/pose",
+                    "input_topic": topic("sensors/pressure"),
+                    "output_topic": topic("sensors/pressure/pose"),
                     "frame_id": "world_enu",
-                    "sensor_frame_id": "cirtesub/Pressure",
+                    "sensor_frame_id": f"{robot_namespace}/Pressure",
                     "positive_down": True,
                     "fallback_z_variance": 0.01,
                 }
             ],
         ),
-        IncludeLaunchDescription(PythonLaunchDescriptionSource(aruco_map_launch)),
+        Node(
+            package="cirtesu_tank_aruco_localization",
+            executable="aruco_map_localization_node",
+            name="aruco_map_localization",
+            output="screen",
+            parameters=[aruco_config_file],
+        ),
         Node(
             package="robot_localization",
             executable="navsat_transform_node",
@@ -127,11 +166,11 @@ def launch_setup(context, *args, **kwargs):
                 },
             ],
             remappings=[
-                ("gps/fix", "/cirtesub/sensors/gps"),
-                ("imu", "/cirtesub/sensors/imu_enu"),
+                ("gps/fix", topic("sensors/gps")),
+                ("imu", topic("sensors/imu_enu")),
                 ("odometry/filtered", output_odom_topic),
-                ("odometry/gps", "/cirtesub/sensors/gps/odometry"),
-                ("gps/filtered", "/cirtesub/sensors/gps/filtered"),
+                ("odometry/gps", topic("sensors/gps/odometry")),
+                ("gps/filtered", topic("sensors/gps/filtered")),
             ],
         ),
         Node(
@@ -150,9 +189,9 @@ def launch_setup(context, *args, **kwargs):
             parameters=[
                 {
                     "input_topic": output_odom_topic,
-                    "output_topic": "/cirtesub/localization/odometry",
+                    "output_topic": output_ned_odom_topic,
                     "frame_id": "world_ned",
-                    "child_frame_id": "cirtesub/base_link",
+                    "child_frame_id": base_link_frame,
                 }
             ],
         ),
@@ -162,13 +201,12 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     return LaunchDescription(
         [
-            DeclareLaunchArgument(
-                "output_odom_topic",
-                default_value="/cirtesub/localization/odometry_enu",
-            ),
+            DeclareLaunchArgument("robot_namespace", default_value="sura"),
+            DeclareLaunchArgument("output_odom_topic", default_value=""),
+            DeclareLaunchArgument("output_ned_odom_topic", default_value=""),
             DeclareLaunchArgument("map_frame", default_value="map"),
             DeclareLaunchArgument("odom_frame", default_value="world_enu"),
-            DeclareLaunchArgument("base_link_frame", default_value="cirtesub/base_link"),
+            DeclareLaunchArgument("base_link_frame", default_value=""),
             DeclareLaunchArgument("world_frame", default_value="world_enu"),
             DeclareLaunchArgument("publish_tf", default_value="false"),
             DeclareLaunchArgument("datum_latitude", default_value="39.9944"),
