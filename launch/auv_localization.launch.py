@@ -12,6 +12,7 @@ def namespaced_config(config_file, robot_namespace):
     text = Path(config_file).read_text(encoding="utf-8")
     text = text.replace("/cirtesub/", f"/{robot_namespace}/")
     text = text.replace("cirtesub/", f"{robot_namespace}/")
+    text = text.replace("cirtesub_", f"{robot_namespace}_")
 
     output_file = f"/tmp/sura_localization_{robot_namespace}_{Path(config_file).name}"
     Path(output_file).write_text(text, encoding="utf-8")
@@ -20,6 +21,13 @@ def namespaced_config(config_file, robot_namespace):
 
 def launch_setup(context, *args, **kwargs):
     robot_namespace = LaunchConfiguration("robot_namespace").perform(context).strip("/")
+    environment = LaunchConfiguration("environment").perform(context)
+
+    if environment not in ("sim", "real"):
+        raise RuntimeError(
+            f"Unsupported environment '{environment}'. Use 'sim' or 'real'."
+        )
+
     package_share = get_package_share_directory("sura_localization")
     aruco_share = get_package_share_directory("cirtesu_tank_aruco_localization")
 
@@ -27,6 +35,7 @@ def launch_setup(context, *args, **kwargs):
         os.path.join(package_share, "config", "ekf_auv.yaml"),
         robot_namespace,
     )
+
     aruco_config_file = namespaced_config(
         os.path.join(aruco_share, "config", "aruco_map.yaml"),
         robot_namespace,
@@ -37,8 +46,8 @@ def launch_setup(context, *args, **kwargs):
 
     map_frame = LaunchConfiguration("map_frame")
     odom_frame = LaunchConfiguration("odom_frame")
-    world_frame = LaunchConfiguration("world_frame")
-    publish_tf = LaunchConfiguration("publish_tf")
+    pressure_offset_pa = LaunchConfiguration("pressure_offset_pa")
+
     base_link_frame = LaunchConfiguration("base_link_frame").perform(context)
     if not base_link_frame:
         base_link_frame = f"{robot_namespace}/base_link"
@@ -59,8 +68,7 @@ def launch_setup(context, *args, **kwargs):
         "map_frame": map_frame,
         "odom_frame": odom_frame,
         "base_link_frame": base_link_frame,
-        "world_frame": world_frame,
-        "publish_tf": publish_tf,
+        "world_frame": "world_enu",
         "pose0": topic("sensors/pressure/pose"),
         "pose1": topic("sensors/aruco/pose_enu"),
         "odom0": topic("sensors/gps/odometry"),
@@ -68,53 +76,37 @@ def launch_setup(context, *args, **kwargs):
         "imu0": topic("sensors/imu_enu"),
     }
 
-    return [
+    nodes = [
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
             name="world_ned_to_world_enu",
             output="screen",
             arguments=[
-                "--x",
-                "0.0",
-                "--y",
-                "0.0",
-                "--z",
-                "0.0",
-                "--roll",
-                "3.14159265359",
-                "--pitch",
-                "0.0",
-                "--yaw",
-                "1.57079632679",
-                "--frame-id",
-                "world_ned",
-                "--child-frame-id",
-                "world_enu",
+                "--x", "0.0",
+                "--y", "0.0",
+                "--z", "0.0",
+                "--roll", "3.14159265359",
+                "--pitch", "0.0",
+                "--yaw", "1.57079632679",
+                "--frame-id", "world_ned",
+                "--child-frame-id", "world_enu",
             ],
         ),
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
-            name="world_ned_to_cirtesu_tank",
+            name="world_ned_to_tank",
             output="screen",
             arguments=[
-                "--x",
-                "0.0",
-                "--y",
-                "0.0",
-                "--z",
-                "0.0",
-                "--roll",
-                "0.0",
-                "--pitch",
-                "0.0",
-                "--yaw",
-                "3.1416",
-                "--frame-id",
-                "world_ned",
-                "--child-frame-id",
-                "cirtesu_tank",
+                "--x", "0.0",
+                "--y", "0.0",
+                "--z", "0.0",
+                "--roll", "0.0",
+                "--pitch", "0.0",
+                "--yaw", "3.1416",
+                "--frame-id", "world_ned",
+                "--child-frame-id", "cirtesu_tank",
             ],
         ),
         Node(
@@ -126,23 +118,7 @@ def launch_setup(context, *args, **kwargs):
                 {
                     "input_topic": topic("sensors/imu"),
                     "output_topic": topic("sensors/imu_enu"),
-                    "frame_id": f"{robot_namespace}/IMU",
-                }
-            ],
-        ),
-        Node(
-            package="cirtesub_stonefish",
-            executable="pressure_to_pose.py",
-            name="pressure_to_pose",
-            output="screen",
-            parameters=[
-                {
-                    "input_topic": topic("sensors/pressure"),
-                    "output_topic": topic("sensors/pressure/pose"),
-                    "frame_id": "world_enu",
-                    "sensor_frame_id": f"{robot_namespace}/Pressure",
-                    "positive_down": True,
-                    "fallback_z_variance": 0.01,
+                    "frame_id": f"{robot_namespace}/imu_link",
                 }
             ],
         ),
@@ -179,7 +155,9 @@ def launch_setup(context, *args, **kwargs):
             name="ekf_filter_node",
             output="screen",
             parameters=[config_file, frame_overrides],
-            remappings=[("odometry/filtered", output_odom_topic)],
+            remappings=[
+                ("odometry/filtered", output_odom_topic),
+            ],
         ),
         Node(
             package="sura_localization",
@@ -197,21 +175,43 @@ def launch_setup(context, *args, **kwargs):
         ),
     ]
 
+    nodes.append(
+        Node(
+            package="sura_localization",
+            executable="pressure_to_pose",
+            name="pressure_to_pose",
+            output="screen",
+            parameters=[
+                {
+                    "input_topic": topic("sensors/pressure"),
+                    "output_topic": topic("sensors/pressure/pose"),
+                    "frame_id": "world_enu",
+                    "sensor_frame_id": f"{robot_namespace}/Pressure",
+                    "pressure_offset_pa": pressure_offset_pa,
+                    "positive_down": True,
+                    "fallback_z_variance": 0.01,
+                }
+            ],
+        )
+    )
+
+    return nodes
+
 
 def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("robot_namespace", default_value="sura"),
+            DeclareLaunchArgument("environment", default_value="real"),
             DeclareLaunchArgument("output_odom_topic", default_value=""),
             DeclareLaunchArgument("output_ned_odom_topic", default_value=""),
             DeclareLaunchArgument("map_frame", default_value="map"),
             DeclareLaunchArgument("odom_frame", default_value="world_enu"),
-            DeclareLaunchArgument("base_link_frame", default_value=""),
-            DeclareLaunchArgument("world_frame", default_value="world_enu"),
-            DeclareLaunchArgument("publish_tf", default_value="false"),
+            DeclareLaunchArgument("base_link_frame", default_value="bluerov/base_link"),
             DeclareLaunchArgument("datum_latitude", default_value="39.9944"),
             DeclareLaunchArgument("datum_longitude", default_value="-0.0741"),
             DeclareLaunchArgument("datum_heading", default_value="0.0"),
+            DeclareLaunchArgument("pressure_offset_pa", default_value="100500.0"),
             OpaqueFunction(function=launch_setup),
         ]
     )
