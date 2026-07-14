@@ -14,8 +14,8 @@ namespace
 geometry_msgs::msg::Vector3 transform_vector(const geometry_msgs::msg::Vector3 & vector)
 {
   geometry_msgs::msg::Vector3 converted;
-  converted.x = vector.y;
-  converted.y = vector.x;
+  converted.x = vector.x;
+  converted.y = -vector.y;
   converted.z = -vector.z;
   return converted;
 }
@@ -59,14 +59,22 @@ geometry_msgs::msg::Quaternion rotate_orientation(
   ned_to_enu.y = std::sqrt(0.5);
   ned_to_enu.z = 0.0;
   ned_to_enu.w = 0.0;
-  return normalize_quaternion(multiply_quaternions(ned_to_enu, orientation));
+
+  geometry_msgs::msg::Quaternion frd_to_flu;
+  frd_to_flu.x = 1.0;
+  frd_to_flu.y = 0.0;
+  frd_to_flu.z = 0.0;
+  frd_to_flu.w = 0.0;
+
+  return normalize_quaternion(
+    multiply_quaternions(multiply_quaternions(ned_to_enu, orientation), frd_to_flu));
 }
 
 std::array<double, 9> transform_covariance(const std::array<double, 9> & covariance)
 {
   constexpr double transform[3][3] = {
-    {0.0, 1.0, 0.0},
     {1.0, 0.0, 0.0},
+    {0.0, -1.0, 0.0},
     {0.0, 0.0, -1.0},
   };
 
@@ -94,9 +102,16 @@ public:
     declare_parameter<std::string>("input_topic", "/cirtesub/sensors/imu");
     declare_parameter<std::string>("output_topic", "/cirtesub/sensors/imu_enu");
     declare_parameter<std::string>("frame_id", "cirtesub/IMU");
+    declare_parameter<double>("orientation_yaw_stddev_deg", -1.0);
 
     const auto input_topic = get_parameter("input_topic").as_string();
     const auto output_topic = get_parameter("output_topic").as_string();
+    const double yaw_stddev_deg = get_parameter("orientation_yaw_stddev_deg").as_double();
+    if (yaw_stddev_deg >= 0.0) {
+      constexpr double pi = 3.14159265358979323846;
+      const double yaw_stddev_rad = yaw_stddev_deg * pi / 180.0;
+      orientation_yaw_variance_ = yaw_stddev_rad * yaw_stddev_rad;
+    }
 
     publisher_ = create_publisher<sensor_msgs::msg::Imu>(output_topic, 10);
     subscription_ = create_subscription<sensor_msgs::msg::Imu>(
@@ -121,6 +136,9 @@ private:
     converted.header.frame_id = get_parameter("frame_id").as_string();
     converted.orientation = rotate_orientation(msg.orientation);
     converted.orientation_covariance = transform_covariance(msg.orientation_covariance);
+    if (orientation_yaw_variance_ >= 0.0) {
+      converted.orientation_covariance[8] = orientation_yaw_variance_;
+    }
     converted.angular_velocity = transform_vector(msg.angular_velocity);
     converted.angular_velocity_covariance = transform_covariance(msg.angular_velocity_covariance);
     converted.linear_acceleration = transform_vector(msg.linear_acceleration);
@@ -131,6 +149,7 @@ private:
 
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr publisher_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr subscription_;
+  double orientation_yaw_variance_{-1.0};
 };
 
 }  // namespace

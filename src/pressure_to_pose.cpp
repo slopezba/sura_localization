@@ -25,6 +25,8 @@ public:
     declare_parameter<double>("surface_pressure_pa", 101325.0);
     declare_parameter<double>("fluid_density_kg_m3", 997.0);
     declare_parameter<double>("gravity_m_s2", 9.80665);
+    declare_parameter<double>("z_scale", 1.0);
+    declare_parameter<double>("z_offset_m", 0.0);
     declare_parameter<double>("fallback_z_variance", 0.01);
     declare_parameter<double>("fallback_xy_variance", 99999.0);
 
@@ -88,7 +90,9 @@ private:
     }
 
     const bool positive_down = get_parameter("positive_down").as_bool();
-    const double z = positive_down ? -depth : depth;
+    const double raw_z = positive_down ? -depth : depth;
+    const double z = raw_z * get_parameter("z_scale").as_double() +
+      get_parameter("z_offset_m").as_double();
 
     geometry_msgs::msg::PoseWithCovarianceStamped pose;
     pose.header.stamp = msg.header.stamp;

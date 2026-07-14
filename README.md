@@ -159,22 +159,25 @@ ros2 launch sura_localization cirtesu_auv_localization.launch.py \
 
 ## Conversion Rules
 
-### NED to ENU
+### IMU NED to ENU
 
-Used by `ned_to_enu_imu`:
+Used by `imu_ned_to_enu`:
+
+The IMU orientation changes world convention from NED to ENU and sensor-frame
+convention from FRD to FLU:
 
 ```text
-enu.x = ned.y
-enu.y = ned.x
-enu.z = -ned.z
+q_out = q_ned_to_enu * q_raw * q_frd_to_flu
 ```
 
-The node converts:
+Angular velocity and linear acceleration are expressed in the IMU frame, so they
+only use the sensor-frame conversion:
 
-- orientation
-- angular velocity
-- linear acceleration
-- IMU covariances
+```text
+flu.x =  frd.x
+flu.y = -frd.y
+flu.z = -frd.z
+```
 
 ### ENU to NED
 

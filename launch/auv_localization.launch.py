@@ -97,7 +97,7 @@ def launch_setup(context, *args, **kwargs):
             package="robot_localization",
             executable="ekf_node",
             name="ekf_filter_node",
-            output="screen",
+            output="log",
             parameters=[ekf_params, ekf_overrides],
             remappings=[
                 ("odometry/filtered", output_odom_topic),
@@ -136,14 +136,18 @@ def launch_setup(context, *args, **kwargs):
         nodes.append(
             Node(
                 package="sura_localization",
-                executable="ned_to_enu_imu",
+                executable="imu_ned_to_enu",
                 name="imu_ned_to_enu",
                 output="screen",
                 parameters=[
                     {
                         "input_topic": LaunchConfiguration("imu_ned_topic"),
                         "output_topic": LaunchConfiguration("imu_enu_topic"),
-                        "frame_id": imu_enu_frame,
+                        "output_frame": imu_enu_frame,
+                        "convert_frd_to_flu": True,
+                        "orientation_yaw_stddev_deg": LaunchConfiguration(
+                            "imu_orientation_yaw_stddev_deg"
+                        ),
                     }
                 ],
             )
@@ -164,6 +168,8 @@ def launch_setup(context, *args, **kwargs):
                         "frame_id": world_frame,
                         "sensor_frame_id": namespaced_frame(robot_namespace, "pressure_link"),
                         "positive_down": True,
+                        "z_scale": LaunchConfiguration("pressure_pose_z_scale"),
+                        "z_offset_m": LaunchConfiguration("pressure_pose_z_offset_m"),
                         "fallback_z_variance": 0.01,
                         "fallback_xy_variance": 0.01,
                     }
@@ -212,9 +218,12 @@ def generate_launch_description():
             DeclareLaunchArgument("imu_ned_topic", default_value="sensors/imu"),
             DeclareLaunchArgument("imu_enu_topic", default_value="sensors/imu_enu"),
             DeclareLaunchArgument("imu_enu_frame", default_value=""),
+            DeclareLaunchArgument("imu_orientation_yaw_stddev_deg", default_value="-1.0"),
             DeclareLaunchArgument("convert_pressure_to_pose", default_value="true"),
             DeclareLaunchArgument("pressure_topic", default_value="sensors/pressure"),
             DeclareLaunchArgument("pressure_pose_topic", default_value="sensors/pressure/pose"),
+            DeclareLaunchArgument("pressure_pose_z_scale", default_value="1.0"),
+            DeclareLaunchArgument("pressure_pose_z_offset_m", default_value="0.0"),
             DeclareLaunchArgument("output_odom_topic", default_value=""),
             DeclareLaunchArgument("output_ned_odom_topic", default_value=""),
             DeclareLaunchArgument("ned_world_frame", default_value="world_ned"),
