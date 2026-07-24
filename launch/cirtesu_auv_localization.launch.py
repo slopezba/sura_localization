@@ -157,7 +157,7 @@ def generate_launch_description():
             DeclareLaunchArgument("pressure_topic", default_value="sensors/pressure"),
             DeclareLaunchArgument("pressure_pose_topic", default_value="sensors/pressure/pose"),
             DeclareLaunchArgument("pressure_pose_z_scale", default_value="1.1210762332"),
-            DeclareLaunchArgument("pressure_pose_z_offset_m", default_value="-0.0224215247"),
+            DeclareLaunchArgument("pressure_pose_z_offset_m", default_value="-1.68"),
             DeclareLaunchArgument("output_odom_topic", default_value=""),
             DeclareLaunchArgument("output_ned_odom_topic", default_value=""),
             DeclareLaunchArgument("ned_world_frame", default_value="world_ned"),
