@@ -68,16 +68,7 @@ private:
     double depth = 0.0;
 
     if (environment == "sim") {
-      if (!has_sim_surface_pressure_) {
-        sim_surface_pressure_ = msg.fluid_pressure;
-        has_sim_surface_pressure_ = true;
-        RCLCPP_INFO(
-          get_logger(),
-          "Using %.6f as simulated surface pressure reference",
-          sim_surface_pressure_);
-      }
-
-      const double pressure_delta_pa = msg.fluid_pressure - sim_surface_pressure_;
+      const double pressure_delta_pa = msg.fluid_pressure;
       depth = pressure_delta_pa / (density * gravity);
     } else {
       const double surface_pressure = get_parameter("surface_pressure_pa").as_double();
