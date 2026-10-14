@@ -151,7 +151,7 @@ private:
     converted.twist = msg.twist;
     converted.twist.twist.angular.x = msg.twist.twist.angular.y;
     converted.twist.twist.angular.y = msg.twist.twist.angular.x;
-    converted.twist.twist.angular.z = -msg.twist.twist.angular.z;
+    converted.twist.twist.angular.z = msg.twist.twist.angular.z;
     converted.twist.covariance = transform_twist_angular_covariance(msg.twist.covariance);
 
     publisher_->publish(converted);
